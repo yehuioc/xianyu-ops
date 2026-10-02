@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>闲鱼小后台 · 商品与观察</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a href="#overview" class="brand"><span class="brand-mark">鱼</span><span>闲鱼小后台<small>把一次修改，变成一次观察</small></span></a>
+    <div class="workspace-label">我的工作区</div>
+    <nav aria-label="主要导航">
+      <button class="nav-item active" data-view="overview"><span>◉</span> 今日工作台</button>
+      <button class="nav-item" data-view="products"><span>▦</span> 我的商品</button>
+      <button class="nav-item" data-view="commerce"><span>◇</span> 商品工坊</button>
+      <button class="nav-item" data-view="materials"><span>▧</span> 手机素材包</button>
+      <button class="nav-item" data-view="observations"><span>↗</span> 记录与分析</button>
+      <button class="nav-item" data-view="delivery"><span>⇢</span> 交付与回复</button>
+      <button class="nav-item" data-view="settings"><span>⚙</span> 账号与任务</button>
+      <button class="nav-item" data-view="requirements"><span>≡</span> 需求来源</button>
+    </nav>
+    <div class="sidebar-foot"><span class="status-dot"></span> 自有后台 · 本机运行<p>内容由你决定<br>重复记录交给后台</p></div>
+  </aside>
+
+  <div class="main-shell">
+    <header class="topbar"><div class="breadcrumb">工作区 <span>/</span> <strong id="view-name">今日工作台</strong></div><div class="topbar-actions"><span id="account-pill" class="pill muted">读取账号状态…</span><button id="refresh-view" class="icon-button" aria-label="刷新后台显示">↻</button></div></header>
+    <main id="main" tabindex="-1">
+      <div id="global-error" class="alert danger" hidden></div>
+      <section id="view-overview" class="view">
+        <div class="page-heading"><div><div class="eyebrow">TODAY'S WORKSPACE</div><h1>少一点操作，多一点依据。</h1><p>准备好素材，在手机上传。后面的记录、核对和观察留在这里。</p></div><button class="button secondary" id="collect-watched">采集观察中的商品 <span>↗</span></button></div>
+        <div class="overview-grid">
+          <article class="card focus-card"><div class="card-top"><span class="eyebrow">当前观察商品</span><span id="experiment-pill" class="pill amber">读取中</span></div><div class="focus-product"><div class="product-visual"><img id="focus-image" alt="当前商品待发布主图"></div><div class="focus-copy"><span class="tiny muted">DSH · 小样本运营实验</span><h2 id="focus-title">正在载入商品…</h2><p id="focus-description">保留真实数据，再决定下一次修改。</p><div class="price-line"><strong id="focus-price">—</strong><span id="focus-source">等待数据</span></div></div></div><div class="journey" id="journey"></div><div class="focus-actions"><button class="button primary" data-view="materials">查看手机素材包 <span>→</span></button><button class="button ghost" id="check-online">检查是否已上线</button></div><div id="focus-next" class="inline-note"></div></article>
+          <aside class="card daily-card"><span class="eyebrow">后台接下来做什么</span><h2>每天留一份记录</h2><div class="schedule-clock">21<span>:</span>00<small>北京时间</small></div><div id="schedule-status" class="schedule-state">读取任务状态…</div><div class="divider"></div><ol class="quiet-list"><li><span>01</span><div>读取商品与订单<small>来源和时间一起保存</small></div></li><li><span>02</span><div>核对手机上传结果<small>识别新标题、介绍和主图</small></div></li><li><span>03</span><div>形成观察结论<small>满 72 小时后，看数据是否足够</small></div></li></ol><button class="text-button" data-view="settings">查看采集状态与记录 →</button></aside>
+        </div>
+        <div class="section-heading"><div><h2>最近一次记录</h2><p id="metrics-caption">数据来源与读取时间会显示在每次记录中。</p></div><button class="text-button" data-view="observations">展开记录与分析 →</button></div>
+        <div class="metric-grid" id="overview-metrics"></div>
+        <article class="card insight-card"><span class="insight-icon">✦</span><div><h3 id="insight-title">正在检查观察阶段</h3><p id="insight-body">暂不根据零散数字判断效果。</p></div></article>
+      </section>
+
+      <section id="view-products" class="view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">PRODUCTS</div><h1>我的商品</h1><p>先照顾正在使用的商品，历史导入记录也能找到。</p></div><button class="button secondary" id="refresh-catalog">从闲鱼刷新在售商品</button></div>
+        <div id="products-grid" class="products-grid"></div>
+        <details class="card history-details"><summary id="historical-summary">历史导入商品</summary><div id="historical-products" class="table-wrap"></div></details>
+      </section>
+
+      <section id="view-materials" class="view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">PHONE-READY MATERIALS</div><h1>手机上传，只带这一个包。</h1><p>标题、介绍和主图放在一起。保留商品原价格与规格，上传到原商品即可。</p></div><span class="pill" id="material-state">草稿</span></div>
+        <div class="material-layout"><article class="card editor-card"><div class="section-heading compact"><h2>商品文案</h2><button class="text-button" id="reset-draft">恢复文件中的文案</button></div><label for="draft-title">标题</label><div class="input-with-action"><input id="draft-title" maxlength="200" autocomplete="off"><button class="small-button" id="copy-title">复制</button></div><label for="draft-description">商品介绍</label><textarea id="draft-description" rows="16"></textarea><div class="editor-bottom"><span class="tiny muted">打包前可直接修改，改动不会提交到闲鱼。</span><button class="small-button" id="copy-description">复制介绍</button></div><div class="editor-actions"><button class="button secondary" id="save-draft">保存草稿</button><button class="button primary" id="prepare-package">生成手机素材包 <span>→</span></button></div></article><div class="material-side"><article class="card image-card"><div class="card-top"><h2>第一张主图</h2><span class="tiny muted">列表中最先看到</span></div><img id="draft-image" alt="待发布商品主图"><label class="button secondary upload-button" for="image-upload">替换主图</label><input type="file" id="image-upload" accept="image/png,image/jpeg,image/webp" hidden><p class="tiny muted">图片只保存在本项目，生成素材包后再由你手机上传。</p></article><article class="card package-card" id="package-download"><h3>准备好后，一次下载</h3><p>素材包包含可粘贴文案、主图与简短上传说明。</p></article></div></div>
+        <div class="alert neutral"><strong>上传后会发生什么？</strong>后台会在下一轮采集中检查新内容，也可以在工作台立即核对。确认线上内容后开始观察；取不到的字段会保留缺口，不会写成成功。</div>
+      </section>
+
+      <section id="view-observations" class="view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">OBSERVE, THEN DECIDE</div><h1>让变化有迹可循。</h1><p>同一商品、同一来源、同一观察窗口，才放在一起比较。</p></div><button class="button secondary" id="collect-current">现在记录一轮</button></div>
+        <div class="metric-grid" id="analysis-metrics"></div>
+        <div class="observation-grid"><article class="card chart-card"><div class="section-heading compact"><div><h2>公开浏览记录</h2><p>这是详情页浏览，不是后台曝光。</p></div><span class="pill muted" id="chart-range">—</span></div><div id="trend-chart" class="trend-chart"></div></article><article class="card decision-card"><span class="eyebrow">当前判断</span><h2 id="analysis-heading">—</h2><p id="analysis-recommendation"></p><div id="analysis-window" class="inline-note"></div><ul id="analysis-gaps" class="gap-list"></ul></article></div>
+        <article class="card"><div class="section-heading compact"><h2>每次采集的原始记录</h2><span class="tiny muted">失败也会保留，不补造缺失值</span></div><div class="table-wrap"><table><thead><tr><th>采集时间</th><th>公开浏览</th><th>想要</th><th>订单来源</th><th>结果</th></tr></thead><tbody id="snapshot-rows"></tbody></table></div></article>
+        <article class="card orders-card"><div class="section-heading compact"><h2>对应订单</h2><span class="tiny muted">取消单与支付单分别看待</span></div><div class="table-wrap"><table><thead><tr><th>订单</th><th>状态</th><th>金额</th><th>支付时间</th><th>来源</th></tr></thead><tbody id="order-rows"></tbody></table></div></article>
+      </section>
+
+      <section id="view-delivery" class="view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">DELIVERY & REPLIES</div><h1>交付与回复，集中放好。</h1><p>保留已有商品对应关系，不让改标题影响交付资料的查找。</p></div><span id="delivery-state" class="pill amber">读取状态</span></div>
+        <div id="delivery-notice" class="alert neutral"></div>
+        <article class="card"><div class="section-heading compact"><div><h2>自动回复与资料交付</h2><p>使用已有商品的关键词和交付文案；已付款订单匹配商品、买家与规格后才交付。</p></div><button id="toggle-messaging" class="button secondary">读取状态</button></div><p id="messaging-detail" class="tiny muted"></p><div class="table-wrap"><table><thead><tr><th>时间</th><th>用途</th><th>结果</th><th>说明</th></tr></thead><tbody id="message-rows"></tbody></table></div><div id="message-blocks" class="inline-note" hidden></div></article>
+        <article class="card"><div class="section-heading compact"><div><h2>每件商品的自动执行</h2><p>数字成品核实付款后交付；定制服务自动收集需求，由卖家完成并验收后发货。</p></div></div><div class="table-wrap"><table><thead><tr><th>商品</th><th>自动回复</th><th>付款后动作</th></tr></thead><tbody id="automation-coverage"></tbody></table></div></article>
+        <div id="delivery-cards" class="delivery-grid"></div>
+        <article class="card"><div class="section-heading compact"><div><h2>商品咨询与售后回复</h2><p>同一答复在同一买家、商品会话内 10 分钟不重复；未命中时的首次答复在已有自动消息后 24 小时内保持安静。未启用大模型。</p></div><input id="keyword-search" type="search" placeholder="搜索关键词或商品" aria-label="搜索关键词回复"></div><div class="table-wrap keyword-table"><table><thead><tr><th>商品</th><th>关键词</th><th>回复内容</th></tr></thead><tbody id="keyword-rows"></tbody></table></div></article>
+      </section>
+
+      <section id="view-settings" class="view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">ACCOUNT & ROUTINE</div><h1>后台状态，一眼看清。</h1><p>能读取什么、哪里需要处理，各自说明。</p></div></div>
+        <div class="settings-grid"><article class="card"><div class="section-heading compact"><h2>原账号连接</h2><span id="settings-account-state" class="pill">—</span></div><dl id="account-details" class="detail-list"></dl><button class="button secondary" id="connect-account">连接现有登录</button><p class="tiny muted">沿用原 Edge 登录资料。不会清空登录，也不会在页面显示 Cookie。</p></article><article class="card"><div class="section-heading compact"><h2>每日采集</h2><span class="pill muted">北京时间 21:00</span></div><p id="automation-description"></p><label class="toggle-row"><span>允许后台定期采集<small>关闭后保留已有数据，下一次任务会跳过读取。</small></span><input id="collection-enabled" type="checkbox" role="switch"></label><div id="last-collection" class="inline-note"></div></article></div>
+        <article class="card"><div class="section-heading compact"><h2>最近运行记录</h2><button class="text-button" id="reload-jobs">刷新记录</button></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>操作</th><th>结果</th><th>说明</th></tr></thead><tbody id="job-rows"></tbody></table></div></article>
+      </section>
+
+      <section id="view-commerce" class="view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">PRODUCT WORKSHOP</div><h1>把方法做成可交付的商品。</h1><p>核对文案、价格和平台分类后，自动上传图片并发布到闲鱼。</p></div></div>
+          <div class="alert neutral"><strong>先预览，再发布</strong> 商品卡上的价格仍是试售提案。点击“自动上架”可以编辑并核对；只有最后确认才会上传图片、提交发布。数字成品可在卡片中上传夸克并启用付款后发货；定制服务按客户需求交付。</div>
+          <article class="card"><div class="section-heading compact"><div><h2>夸克交付</h2><p id="quark-connection">正在读取连接状态。</p></div><div class="commerce-actions"><button class="button secondary" id="quark-connect">扫码连接夸克</button><button class="text-button" id="quark-check">检查连接</button><button class="text-button" id="quark-audit">检查已有发货链接</button></div></div><p class="tiny muted">首次连接会打开夸克官方授权页；请核对文件授权范围。交付文件放入独立的闲鱼交付目录，下载与本地核对一致后才允许启用发货。</p><details><summary>扫码完成后仍未连接</summary><form id="quark-code-form" class="market-search-form"><input id="quark-code" type="password" autocomplete="off" placeholder="粘贴夸克页面给出的一次性授权码" aria-label="夸克一次性授权码"><button class="button secondary" id="quark-code-submit">完成连接</button></form></details><div id="quark-audit-results"></div></article>
+        <article class="card"><div class="section-heading compact"><div><h2>公开市场样本</h2><p>每次只读取一页；挂牌与想要都不等于销量。</p></div></div><form id="market-search-form" class="market-search-form"><input id="market-query" maxlength="60" required placeholder="例如：Excel表格制作" aria-label="市场搜索词"><button id="market-search-button" class="button secondary">查询一次</button></form><div id="market-results"></div></article>
+        <div class="section-heading"><div><h2>商品与服务包</h2><p>数字成品可下载试用；服务包展示接单与验收范围，需按客户输入制作。</p></div><select id="commerce-filter" aria-label="商品类型"><option value="all">全部类型</option><option value="digital">数字成品</option><option value="service">定制服务</option><option value="internal">内部选品</option></select></div>
+        <div id="commerce-grid" class="commerce-grid"></div>
+        <article class="card"><h2>仍需要外部条件的方向</h2><div id="commerce-deferred"></div></article>
+      </section>
+
+      <section id="view-requirements" class="view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">WHY IT EXISTS</div><h1>每项功能，从需求出发。</h1><p>保留能找到的你的原话。缺失的明确标注，不把实现方案冒充成你的要求。</p></div></div><div id="requirement-cards" class="requirements-list"></div>
+      </section>
+    </main>
+    <footer class="page-footer"><span>闲鱼小后台 · 为真实样本服务</span><span id="last-loaded">—</span></footer>
+  </div>
+  <dialog id="config-dialog" class="config-dialog">
+    <form id="config-form">
+      <div class="section-heading compact"><h2 id="config-heading">编辑配置</h2><button type="button" class="icon-button" id="close-config" aria-label="关闭编辑">×</button></div>
+      <label for="config-name" id="config-name-label">名称</label><input id="config-name" maxlength="200" required>
+      <label for="config-content">发送内容</label><textarea id="config-content" rows="10" maxlength="20000" required></textarea>
+      <label class="toggle-row"><span>启用这条配置</span><input id="config-enabled" type="checkbox"></label>
+      <p class="tiny muted">只修改本地配置。自动执行是否已启用，以交付与回复页状态为准。</p>
+      <button type="submit" class="button primary" id="save-config">保存配置</button>
+    </form>
+  </dialog>
+  <dialog id="publish-dialog" class="config-dialog publish-dialog">
+    <form id="publish-form">
+      <div class="section-heading compact"><h2 id="publish-heading">核对后自动上架</h2><button type="button" class="icon-button" id="close-publish" aria-label="关闭商品预览">×</button></div>
+      <img id="publish-cover" class="publish-cover" alt="将上传的主图">
+      <label for="publish-title">商品标题</label><input id="publish-title" maxlength="60" required>
+      <label for="publish-description">商品介绍</label><textarea id="publish-description" rows="9" maxlength="5000" required></textarea>
+      <div class="publish-numbers"><label>售价（元）<input id="publish-price" type="number" min="0.01" max="999999" step="0.01" required></label><label>库存<input id="publish-quantity" type="number" min="1" max="9999" step="1" required></label></div>
+      <p id="publish-hint" class="tiny muted">读取预览会核实当前账号、地区和平台分类。修改任何字段后需重新预览。</p>
+      <button id="prepare-publish" class="button secondary" type="submit">读取发布预览</button>
+      <p id="publish-review" class="inline-note" hidden></p>
+      <button id="confirm-publish" class="button primary" type="button" hidden>内容已核对，确认发布到闲鱼</button>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

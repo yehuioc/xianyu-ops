@@ -1,0 +1,16 @@
+data/
+private/
+.tmp/
+.venv/
+build/
+test-output/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.*
+*.key
+*.pem
+vendor/
+upstream/
+products/

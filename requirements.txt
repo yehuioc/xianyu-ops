@@ -1,0 +1,22 @@
+# xianyu-ops 项目级依赖声明
+# 既有脚本环境：系统 Python 3.12.6（xianyu_research.py / check-listing.py / xianyu-detail-capture.py）
+
+# 5 号：浏览器自动化基座（已在用；2026-08-02 随 2 号依赖升级至 1.59.0）
+playwright==1.59.0
+
+# 自有本机后台（当前环境直接验收）
+fastapi==0.141.1
+uvicorn==0.50.1
+aiohttp==3.9.5
+cryptography==46.0.6
+Pillow==12.3.0
+psutil==7.2.2
+httpx==0.28.1
+msgpack==1.1.1
+
+# 7 号：AI 浏览器代理（browser-use）— 安装于隔离 venv vendor/.venv-browseruse
+# browser-use 继续使用原隔离环境维护（见 docs/reviews/07）
+# 使用方式：vendor/.venv-browseruse/Scripts/python.exe 调用
+
+# 4 号：LLM 评测（promptfoo）— npx 调用，零安装（node v24.18.0 已验证）
+# 使用方式：npx promptfoo evaluate
