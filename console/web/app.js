@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const state = { account: 'demo-account', item: null, view: 'overview', bootstrap: null, detail: null, delivery: null, draftItem: null, draftDirty: false, polling: new Set() };
+const state = { account: null, item: null, view: 'overview', bootstrap: null, detail: null, delivery: null, draftItem: null, draftDirty: false, polling: new Set() };
 const viewNames = { overview: '今日工作台', products: '我的商品', commerce: '商品工坊', materials: '手机素材包', observations: '记录与分析', delivery: '交付与回复', settings: '账号与任务', requirements: '需求来源' };
 const stages = { awaiting_phone: '待手机上传', pending_review: '已上传 · 待平台审核', status_unknown: '线上状态待核实', evidence_incomplete: '商品已读取 · 展示待核实', checking_image: '正在核对主图', observing: '观察中', needs_attention: '需要核对', content_changed: '线上内容已变化' };
 const authNames = { verified: '最近读取成功', unchecked: '登录资料已连接', login_required: '后台登录凭据待同步', verification_required: '需要平台验证', not_connected: '未连接账号' };
@@ -24,7 +24,7 @@ function fmt(value, full = false) {
   return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', ...(full ? { year: 'numeric' } : {}), hour12: false }).format(date);
 }
 function num(value) { return typeof value === 'number' ? value.toLocaleString('zh-CN') : '—'; }
-function query() { return `?account=${encodeURIComponent(state.account)}`; }
+function query() { return state.account ? `?account=${encodeURIComponent(state.account)}` : ''; }
 function productPath(suffix = '') { return `/api/products/${encodeURIComponent(state.item)}${suffix}${query()}`; }
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast').textContent = message; $('toast').className = `toast${error ? ' error' : ''}`; $('toast').hidden = false;
@@ -161,6 +161,12 @@ function renderPackage() {
   $('package-download').innerHTML = `<h3>这份包，可以带到手机。</h3><p>生成于 ${esc(fmt(packageInfo.created_at))}<br>包含标题、介绍、主图和上传说明。</p><a class="button primary" href="/api/packages/${encodeURIComponent(packageInfo.package_id)}/download" download>下载手机素材包 <span>↓</span></a><p class="tiny">上传到原商品，保留原价格和规格。下载不会提交到平台。</p>`;
 }
 async function loadDraft(force = false) {
+  if (!state.item) {
+    $('draft-title').value = ''; $('draft-description').value = ''; $('draft-image').removeAttribute('src');
+    $('prepare-package').disabled = true; $('save-draft').disabled = true;
+    $('package-download').innerHTML = '<h3>尚未选择商品</h3><p>连接账号并刷新商品后，再准备对应素材。</p>';
+    return;
+  }
   if (state.draftItem === state.item && !force) { renderPackage(); return; }
   try {
     const draft = await api(productPath('/draft') + (force ? '&from_file=true' : ''));
@@ -171,7 +177,7 @@ async function loadDraft(force = false) {
   } catch (error) {
     $('draft-title').value = ''; $('draft-description').value = ''; $('draft-image').removeAttribute('src');
     $('prepare-package').disabled = true; $('save-draft').disabled = true;
-    $('package-download').innerHTML = `<h3>这个商品的材料还未配置</h3><p>${esc(error.message)}</p><button class="button secondary" data-open-product="2534367850985">返回 DSH 商品</button>`;
+    $('package-download').innerHTML = `<h3>这个商品的材料还未配置</h3><p>${esc(error.message)}</p>`;
   }
 }
 async function loadDelivery() {
@@ -219,8 +225,23 @@ async function loadRequirements() {
 }
 async function refresh() {
   state.bootstrap = await api(`/api/bootstrap${query()}`);
+  state.account = state.bootstrap.account;
+  if (state.item && !state.bootstrap.products.some(product => product.item_id === state.item)) state.item = null;
   if (!state.item) state.item = state.bootstrap.settings.focus_item || state.bootstrap.products[0]?.item_id;
-  state.detail = await api(productPath());
+  state.detail = state.item ? await api(productPath()) : null;
+  $('collect-current').disabled = $('check-online').disabled = !state.item;
+  if (!state.item) {
+    $('focus-title').textContent = '尚未加入商品';
+    $('focus-description').textContent = '先到账号与任务连接自己的登录，再刷新在售商品。';
+    $('focus-next').textContent = '没有登录资料、商品或真实订单时，不会发送客户消息或执行交付。';
+    $('focus-price').textContent = '—'; $('focus-source').textContent = '等待连接';
+    $('focus-image').removeAttribute('src'); $('overview-metrics').innerHTML = '';
+    $('experiment-pill').textContent = '尚未配置';
+    $('insight-title').textContent = '等待自己的真实商品';
+    $('insight-body').textContent = '连接账号后再开始观察；当前没有可用于分析的数据。';
+    const schedule = state.bootstrap.settings;
+    $('schedule-status').textContent = !schedule.collection_enabled ? '定期采集已暂停' : schedule.automation?.id ? '任务状态见账号与任务' : '定时任务尚未连接';
+  }
   $('global-error').hidden = true; renderOverview(); renderProducts(); renderAnalysis(); renderSettings(); renderPackage();
   if (state.view === 'commerce') await loadCommerce();
   $('last-loaded').textContent = `页面更新于 ${fmt(state.bootstrap.server_time)} · 北京时间`;

@@ -419,7 +419,8 @@ def create_app(service: ConsoleService | None = None) -> FastAPI:
 
     @app.get("/api/requirements")
     def requirements():
-        path = PROJECT / "console" / "requirements.json"
+        private = DATA / "requirements.json"
+        path = private if private.is_file() else PROJECT / "console" / "requirements.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"entries": []}
 
     # Compatibility endpoints for existing project readers. They return owned

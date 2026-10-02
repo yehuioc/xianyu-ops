@@ -17,11 +17,8 @@ from .engine import ops
 from .marketplace import (MtopClient, MarketError, connect_browser_cookie, parse_cookie,
                          ORDER_LIST_API, DELIVERY_API, ITEM_DETAIL_API, EDIT_DETAIL_API, API_LABELS)
 from .migration import migrate
-from .paths import PROJECT, DATA, OPS, DEFAULT_ACCOUNT, DEFAULT_ITEM, DEFAULT_CDP
+from .paths import PROJECT, DATA, OPS, DEFAULT_ACCOUNT, DEFAULT_ITEM, DEFAULT_CDP, MANAGED_ITEMS
 from .store import Store, now, product_key, CHINA
-
-MANAGED_ITEMS = {"2534367850985", "2534016871941", "2534001733981"}
-
 
 def clean_record(row: dict) -> dict:
     return {k: v for k, v in row.items() if not k.startswith("_")}
@@ -31,6 +28,11 @@ class ConsoleService:
     def __init__(self, store: Store | None = None, *, import_legacy: bool = True):
         self.store = store or Store()
         self.import_result = migrate(self.store) if import_legacy else {}
+        if import_legacy and not self.store.rows("account"):
+            self.store.put("account", DEFAULT_ACCOUNT, {
+                "id": DEFAULT_ACCOUNT, "label": DEFAULT_ACCOUNT,
+                "auth_state": "not_connected", "source": "local_setup",
+            }, account=DEFAULT_ACCOUNT, source="local_setup")
         for account in self.store.rows("account"):
             if self.store.get("credential", account["id"]):
                 try:

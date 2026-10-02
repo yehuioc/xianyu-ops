@@ -1,0 +1,13 @@
+{
+  "account": "local-account",
+  "focus_item": "",
+  "cdp_url": "http://127.0.0.1:9223",
+  "browser_profile": "data/browser-profile",
+  "managed_items": [],
+  "item_profiles": {
+    "installer": "",
+    "resume": "",
+    "orangebooks": [],
+    "resume_services": []
+  }
+}

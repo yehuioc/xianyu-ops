@@ -9,6 +9,7 @@ from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT))
+from console.paths import DEFAULT_ACCOUNT
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -25,7 +26,7 @@ def main():
             lifecycle.add_argument("--take-over-legacy", action="store_true")
     sub.add_parser("migrate")
     collect = sub.add_parser("collect")
-    collect.add_argument("--account", default="demo-account")
+    collect.add_argument("--account", default=DEFAULT_ACCOUNT)
     collect.add_argument("--item-id", action="append")
     collect.add_argument("--scheduled", action="store_true")
     collect.add_argument("--port", type=int, default=8090)

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import psutil
 
-from .paths import PROJECT, DATA
+from .paths import PROJECT, DATA, BROWSER_PROFILE
 from .store import now
 
 
@@ -104,12 +104,13 @@ def ensure_browser() -> dict:
     existing = listener(9223)
     if existing:
         return {"state": "already_running", "port": 9223}
-    profile = PROJECT / "data" / "browser-profile"
+    profile = BROWSER_PROFILE
     candidates = [Path(os.environ.get(name, "C:/Program Files")) / "Microsoft/Edge/Application/msedge.exe"
                   for name in ("PROGRAMFILES(X86)", "PROGRAMFILES")]
     executable = next((path for path in candidates if path.is_file()), None)
-    if executable is None or not profile.is_dir():
-        return {"state": "unavailable", "message": "原 Edge 或原登录目录不存在，请在账号页检查。"}
+    if executable is None:
+        return {"state": "unavailable", "message": "未找到 Edge，请在账号页检查。"}
+    profile.mkdir(parents=True, exist_ok=True)
     spawn([str(executable), f"--user-data-dir={profile}", "--remote-debugging-port=9223",
            "--remote-debugging-address=127.0.0.1", "--no-first-run", "--no-default-browser-check",
            "https://www.goofish.com/im"], "edge")

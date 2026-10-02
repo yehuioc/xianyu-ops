@@ -24,12 +24,12 @@ from typing import Any, Awaitable, Callable, Iterable
 
 from .im_codec import HistoryMessage, MessageEvent, decode_events
 from .order_detail import OrderDetailEvidence, OrderDetailError
-from .paths import PROJECT
+from .paths import PROJECT, MANAGED_ITEMS
 from .store import CHINA, Store, now, product_key
 
 
 LEGACY_DB = PROJECT / "vendor" / "xianyu-auto-reply-fix" / "data" / "xianyu_data.db"
-DEFAULT_MANAGED_ITEMS = frozenset({"2534367850985", "2534016871941", "2534001733981"})
+DEFAULT_MANAGED_ITEMS = MANAGED_ITEMS
 PAID_STATUSES = frozenset({
     "paid", "pending_ship", "wait_seller_send_goods", "wait_seller_send",
     "waitseller_send_goods", "待发货", "买家已付款", "等待卖家发货",

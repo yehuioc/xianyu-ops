@@ -9,11 +9,11 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from console import publishing as pub, commerce
-from public_fixtures import install_catalog
 from console.app import create_app
 from console.service import ConsoleService
 from console.store import Store, product_key
 from console.marketplace import CATEGORY_API, EDIT_DETAIL_API, PUBLISH_API, EDIT_API, ITEM_LIST_API, MarketError, MtopClient
+from public_fixtures import install_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMP = ROOT / 'data/test-tmp'

@@ -11,12 +11,13 @@ import uuid
 
 from .commerce import read_catalog, source_file
 from .store import Store, now, product_key
+from .paths import ITEM_PROFILES
 
 
-INSTALLER = "2534016871941"
-RESUME = "2534001733981"
-ORANGEBOOKS = ("2534367850985", "2534350682455")
-RESUME_SERVICES = ("2533720097539", "2533426358036")
+INSTALLER = str(ITEM_PROFILES.get("installer") or "")
+RESUME = str(ITEM_PROFILES.get("resume") or "")
+ORANGEBOOKS = tuple(str(item) for item in ITEM_PROFILES.get("orangebooks", []))
+RESUME_SERVICES = tuple(str(item) for item in ITEM_PROFILES.get("resume_services", []))
 SERVICE_SPECS = ("人工安装调通", "安装+3个插件", "插件适配定制")
 USAGE = {
     "career-kit": "电脑解压后用浏览器打开 HTML，可编辑后打印为 PDF；Markdown 模板可用文本编辑器填写。没有人工代写、代投或录用承诺。",
