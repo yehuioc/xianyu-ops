@@ -98,9 +98,35 @@ def portfolio(store: Store, account: str) -> dict:
                         "sample_partial" if spec.get("limitations") else
                         "service_prepared" if spec["sale_type"] == "service" and row["delivery_files"] else
                         "local_ready" if row["delivery_files"] else "in_production")
+        sample = next((r for r in sorted(store.rows("market_search", account),
+                                        key=lambda r: r.get("captured_at", ""), reverse=True)
+                       if r.get("keyword") == spec.get("query")), None)
+        cloud, binding, publication = row["quark_delivery"] or {}, row["quark_binding"] or {}, row["publication"] or {}
+        rule = store.get("delivery_rule", binding.get("card_id", ""), {})
+        card = store.get("card", binding.get("card_id", ""), {})
+        delivery_bound = bool(publication.get("item_id") and publication.get("state") == "published"
+            and cloud.get("state") == "bound" and not cloud.get("last_error")
+            and rule.get("enabled") and card.get("enabled")
+            and binding.get("item_id") == publication.get("item_id") == rule.get("item_id")
+            and binding.get("sha256") == cloud.get("sha256") == cloud.get("download_sha256") == card.get("delivery_sha256"))
+        row["workflow"] = {"market_sample_at": sample.get("captured_at") if sample else None,
+            "stages": [
+                {"name": "选品", "state": "sample_saved" if sample and sample.get("status") == "observed" else "needs_research",
+                 "label": "已保存挂牌样本" if sample and sample.get("status") == "observed" else "待查询需求线索"},
+                {"name": "制作与质检", "state": "files_prepared" if row["state"] == "local_ready" else "needs_production",
+                 "label": "本地成品 · 待内容质检" if row["state"] == "local_ready" else "仍需完成交付"},
+                {"name": "夸克上传", "state": cloud.get("state", "not_started"),
+                 "label": "下载摘要已核对" if cloud.get("sha256") and cloud.get("download_sha256") == cloud["sha256"] and cloud.get("state") in {"verified", "bound"} and not cloud.get("last_error") else "待上传或回读核对"},
+                {"name": "闲鱼上架", "state": publication.get("state", "not_started"),
+                 "label": "本人商品已回读在线" if publication.get("state") == "published" else "待预览或核对发布"},
+                {"name": "付款后交付", "state": "configured" if delivery_bound else "not_configured",
+                 "label": "交付规则已绑定 · 真实收件待验" if delivery_bound else "待绑定具体商品"}],
+            "live_buyer_receipt": "not_established_by_configuration"}
         rows.append(row)
     searches = sorted(store.rows("market_search", account), key=lambda r: r["captured_at"], reverse=True)
+    batches = sorted(store.rows("workflow_batch", account), key=lambda r: r.get("updated_at", ""), reverse=True)
     return {**catalog, "products": rows, "searches": searches[:30], "captured_at": now(),
+            "workflow_batches": [{k: r.get(k) for k in ("id", "state", "updated_at", "message", "stopped_slug", "stopped_phase")} for r in batches[:10]],
             "publishing": "review_then_automatic_publish", "revenue_claim": "no_sales_claim"}
 
 

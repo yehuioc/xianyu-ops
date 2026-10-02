@@ -2,21 +2,50 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+import uuid
+from contextlib import contextmanager
+from datetime import datetime
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from . import commerce
-from .publishing import RETRYABLE
+from .publishing import RETRYABLE, digest
 from .paths import PROJECT
-from .store import Store, product_key
+from .store import Store, product_key, now
 
 
 class WorkflowStop(ValueError):
     def __init__(self, message, *, job_id=None):
         super().__init__(message)
         self.job_id = job_id
+
+
+@contextmanager
+def batch_lock(store):
+    path = store.path.parent / "workflow" / "batch.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    if handle.tell() == 0:
+        handle.write(b"0")
+        handle.flush()
+    handle.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        handle.close()
+        raise WorkflowStop("已有资料批次正在执行，请等待它结束后接续；未并行提交。") from exc
+    try:
+        yield
+    finally:
+        handle.close()
 
 
 class Backend:
@@ -116,13 +145,19 @@ class DeliveryWorkflow:
                 "category": preview["category"], "address": preview["address"],
                 "message": "买家包已上传并核对，尚未发布；核对本体、文图、价格与交付后，用这些参数执行 finish。"}
 
-    def finish(self, preview_id, digest, delivery_sha256):
+    def validate_finish(self, preview_id, approved_digest, delivery_sha256):
         self.require_digital()
         self.idle()
         preview = self.store.get("publish_preview", preview_id, {})
         if (preview.get("account") != self.account or preview.get("slug") != self.slug
-                or preview.get("digest") != digest):
+                or preview.get("digest") != approved_digest):
             raise WorkflowStop("指定预览不属于此账号与商品，或摘要不一致")
+        if digest({k: v for k, v in preview.items() if k != "digest"}) != approved_digest:
+            raise WorkflowStop("保存的发布预览内容已变化，未继续发布")
+        publication = self.row("publication")
+        if (not publication or publication.get("state") in RETRYABLE) and (
+                datetime.fromisoformat(now()) - datetime.fromisoformat(preview["created_at"])).total_seconds() > 7200:
+            raise WorkflowStop("预览超过两小时，请重新核对当前账号和分类")
         bundle = self.bundle()
         if bundle["content_sha256"] != preview.get("bundle_sha256") or bundle["delivery_zip_sha256"] != delivery_sha256:
             raise WorkflowStop("确认后的交付或上架素材已变化，未继续发布或绑定")
@@ -130,6 +165,10 @@ class DeliveryWorkflow:
         if (cloud.get("sha256") != delivery_sha256 or cloud.get("download_sha256") != delivery_sha256
                 or cloud.get("state") not in {"verified", "bound"}):
             raise WorkflowStop("已确认买家包没有对应的云端下载核对，未发布")
+        return preview
+
+    def finish(self, preview_id, digest, delivery_sha256):
+        self.validate_finish(preview_id, digest, delivery_sha256)
         publication = self.row("publication")
         if publication and publication.get("id") == preview_id:
             if publication.get("state") in {"claimed", "uploading", "sending"} | RETRYABLE:
@@ -204,3 +243,173 @@ class DeliveryWorkflow:
                 "share_verified_at": cloud.get("share_verification", {}).get("checked_at"),
                 "live_order_proof": "not_established_by_this_check",
                 "message": "就绪仅表示技术配置与已保存证据相符；真实付款后的买家收件仍需实际订单验证。status 不刷新远端，用 verify 回读。"}
+
+
+class BatchWorkflow:
+    """Sequential composition of the one-product workflow, using its durable receipts."""
+
+    def __init__(self, store, backend, account, *, flow_factory=DeliveryWorkflow, interval=60):
+        self.store, self.backend, self.account = store, backend, account
+        self.flow_factory, self.interval = flow_factory, interval
+
+    def flow(self, slug):
+        return self.flow_factory(self.store, self.backend, self.account, slug)
+
+    def save(self, batch):
+        batch["updated_at"] = now()
+        self.store.put("workflow_batch", batch["id"], batch, account=self.account)
+        return batch
+
+    def load(self, batch_id):
+        batch = self.store.get("workflow_batch", batch_id, {})
+        if batch.get("account") != self.account:
+            raise WorkflowStop("批次不存在或不属于当前账号")
+        return batch
+
+    def plan(self, slugs, values=None, *, price_cents=99):
+        if (not isinstance(slugs, list) or not 1 <= len(slugs) <= 20
+                or len(set(slugs)) != len(slugs)):
+            raise WorkflowStop("每批选择 1–20 件不同的数字成品")
+        if type(price_cents) is not int or price_cents not in {59, 99, 199}:
+            raise WorkflowStop("此资料流程的默认试售价请选择 59、99 或 199 分")
+        if values is not None and (not isinstance(values, dict) or set(values) - set(slugs)):
+            raise WorkflowStop("批量发布字段须为按商品标识分组的 JSON 对象")
+        if any(not isinstance(v, dict) for v in (values or {}).values()):
+            raise WorkflowStop("每件商品的发布字段须为 JSON 对象")
+        # Check every selection before creating packages or uploading anything.
+        for slug in slugs:
+            self.flow(slug).require_digital()
+        rows, content_seen = [], set()
+        for slug in slugs:
+            fields = {"price_cents": price_cents, **(values or {}).get(slug, {})}
+            if type(fields.get("price_cents")) is not int or fields["price_cents"] not in {59, 99, 199}:
+                raise WorkflowStop("资料商品试售价须为 59、99 或 199 分")
+            bundle = commerce.build_bundles(self.store, self.account, slug)
+            fingerprint = digest(sorted(f["sha256"] for f in bundle["delivery_files"]))
+            if fingerprint in content_seen:
+                raise WorkflowStop("选中的商品交付内容相同，不能换标题重复铺货")
+            content_seen.add(fingerprint)
+            searches = [s for s in self.store.rows("market_search", self.account)
+                        if s.get("keyword") == commerce.offer(slug).get("query")]
+            sample = max(searches, key=lambda s: s.get("captured_at", ""), default={})
+            rows.append({"slug": slug, "name": commerce.offer(slug)["name"], "values": fields,
+                         "content_sha256": bundle["content_sha256"],
+                         "delivery_sha256": bundle["delivery_zip_sha256"],
+                         "delivery_files": bundle["delivery_files"],
+                         "market_sample": {k: sample.get(k) for k in ("id", "keyword", "status", "captured_at")},
+                         "state": "planned", "plan": None, "result": None})
+        batch = {"id": uuid.uuid4().hex, "account": self.account, "products": rows,
+                 "state": "planned", "created_at": now(), "review_digest": None,
+                 "producer": "codex", "producer_role": "controller",
+                 "producer_evidence": "explicitly_selected_product_slugs_and_existing_buyer_files",
+                 "review_owner": "user", "review_state": "draft", "canonical_status": "record",
+                 "message": "本地批次已准备，尚未上传或发布。逐项核对成品及公开挂牌样本；旧样本不代表当前需求或销量。"}
+        return self.save(batch)
+
+    def unchanged(self, batch):
+        for row in batch["products"]:
+            try:
+                bundle = commerce.build_bundles(self.store, self.account, row["slug"])
+                if bundle["content_sha256"] != row["content_sha256"] or bundle["delivery_zip_sha256"] != row["delivery_sha256"]:
+                    raise WorkflowStop("批次中的成品或上架素材已变化，请重新规划并质检：" + row["slug"])
+            except (ValueError, OSError) as exc:
+                self.stopped(batch, row, "content_check", exc)
+                raise
+
+    @staticmethod
+    def review_digest(batch):
+        return digest({"account": batch["account"], "products": [
+            {k: row[k] for k in ("slug", "content_sha256", "delivery_sha256", "plan")}
+            for row in batch["products"]]})
+
+    def stopped(self, batch, row, phase, error):
+        batch.update(state="needs_attention", message=str(error), stopped_slug=row["slug"],
+                     stopped_phase=phase, job_id=getattr(error, "job_id", None))
+        return self.save(batch)
+
+    def prepare(self, batch_id):
+        with batch_lock(self.store):
+            return self._prepare(batch_id)
+
+    def _prepare(self, batch_id):
+        batch = self.load(batch_id)
+        self.unchanged(batch)
+        if any(row["state"] == "configured" for row in batch["products"]):
+            raise WorkflowStop("此批次已有线上商品，请接续 finish 或回读，不重新准备")
+        for row in batch["products"]:
+            if row["plan"]:
+                try:
+                    self.flow(row["slug"]).validate_finish(row["plan"]["preview_id"], row["plan"]["digest"], row["delivery_sha256"])
+                except (ValueError, OSError) as exc:
+                    return self.stopped(batch, row, "prepare_preflight", exc)
+                continue
+            self.save({**batch, "state": "preparing"})
+            try:
+                row["plan"] = self.flow(row["slug"]).prepare(row["values"])
+                row["state"] = "prepared"
+            except (ValueError, OSError) as exc:
+                return self.stopped(batch, row, "prepare", exc)
+            self.save(batch)
+        batch.update(state="prepared_for_review", review_digest=self.review_digest(batch),
+                     message="买家包已上传核对，尚未上架。逐项核对标题、价格、图片、内容及交付版本后，使用 review_digest 完成这一批。")
+        return self.save(batch)
+
+    def finish(self, batch_id, approved_digest):
+        with batch_lock(self.store):
+            return self._finish(batch_id, approved_digest)
+
+    def _finish(self, batch_id, approved_digest):
+        batch = self.load(batch_id)
+        if (not batch.get("review_digest") or batch["review_digest"] != approved_digest
+                or self.review_digest(batch) != approved_digest):
+            raise WorkflowStop("批次确认摘要不一致，未发布任何新商品")
+        self.unchanged(batch)
+        # All pending items must pass before the first external publication.
+        for row in batch["products"]:
+            if row["state"] != "configured":
+                if not row["plan"]:
+                    raise WorkflowStop("批次仍有未准备的商品")
+                try:
+                    self.flow(row["slug"]).validate_finish(row["plan"]["preview_id"], row["plan"]["digest"], row["delivery_sha256"])
+                except (ValueError, OSError) as exc:
+                    self.stopped(batch, row, "finish_preflight", exc)
+                    raise
+        batch["review_state"] = "reviewed"
+        for row in batch["products"]:
+            if row["state"] == "configured":
+                continue
+            last_write = max(batch.get("last_write_epoch", 0),
+                             self.store.setting("workflow_last_write:" + self.account, 0))
+            remaining = self.interval - (time.time() - last_write)
+            if remaining > 0:
+                batch.update(state="waiting_between_listings", wait_seconds=remaining,
+                             message="上一件已配置，按发布间隔继续下一件；已完成的商品不会重发。")
+                return self.save(batch)
+            self.save({**batch, "state": "finishing"})
+            plan = row["plan"]
+            try:
+                # Retain the account-wide interval even when a write response is lost.
+                self.store.set_setting("workflow_last_write:" + self.account, time.time())
+                row["result"] = self.flow(row["slug"]).finish(plan["preview_id"], plan["digest"], row["delivery_sha256"])
+                if row["result"].get("publication_state") != "published" or row["result"].get("cloud_state") != "bound":
+                    raise WorkflowStop("线上发布或交付绑定未核对完成")
+                row["state"] = "configured"
+                batch["last_write_epoch"] = time.time()
+                self.store.set_setting("workflow_last_write:" + self.account, batch["last_write_epoch"])
+            except (ValueError, OSError) as exc:
+                return self.stopped(batch, row, "finish", exc)
+            self.save(batch)
+        batch.update(state="configured", message="本批商品已上架并绑定各自交付包。就绪状态需核对订单与消息通道；真实付款后买家收件仍待实际订单验证。")
+        return self.save(batch)
+
+    def status(self, batch_id, *, verify=False):
+        batch = self.load(batch_id)
+        for row in batch["products"]:
+            try:
+                flow = self.flow(row["slug"])
+                row["status"] = flow.verify() if verify and row["plan"] else flow.status()
+            except (ValueError, OSError) as exc:
+                row["status"] = {"state": "needs_attention", "message": str(exc)}
+        if verify:
+            self.save(batch)
+        return batch

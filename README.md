@@ -60,6 +60,29 @@ python -B scripts/xianyu-console.py collect --scheduled
 
 没有默认安装定时任务。需要按本机运行环境配置调度；电脑、后台和浏览器须可用。平台内部协议可能变化，不承诺长期稳定。
 
+## AI 资料生产与批量运营
+
+按 [DongQingAi 的流程](https://x.com/DongQingAi/status/2100433090892173789) 串联公开需求检索、AI 制作资料、网盘上传、逐件上架与付款后交付。2026-10-02 用户明确同意沿用现有夸克网盘。闲鱼发布与发货复用本项目自有实现，工具入口由当前 Agent 调用。商品工坊显示每件数字成品的五步进度和最近批次。
+
+先由 Agent 查询一个关键词，依据实际返回的挂牌样本提出方向；用户选定方向后，Agent 独立制作正文、模板、示例、说明及真实对应的上架文图，保存到 `products/monetization/<slug>/delivery/` 和 `listing/` 并登记现有 `catalog.json`。事实、步骤、许可、链接和手机阅读由人及 Agent 核对。价格按低价多销试跑：默认 0.99 元，也可选择 0.59 或 1.99 元。该批次价格进入预览，不修改已有线上商品价格。
+
+```powershell
+python -B scripts/xianyu-delivery-workflow.py research --keyword "非暴力沟通AI"
+python -B scripts/xianyu-delivery-workflow.py batch-plan nvc-skill --price-cents 99
+```
+
+`batch-plan` 只在本机打包，返回批次 ID、真实交付清单和已有市场样本时间。核对资料后继续：
+
+```powershell
+python -B scripts/xianyu-delivery-workflow.py batch-prepare --batch-id <批次ID>
+python -B scripts/xianyu-delivery-workflow.py batch-finish --batch-id <批次ID> --batch-digest <核对后的review_digest>
+python -B scripts/xianyu-delivery-workflow.py batch-verify --batch-id <批次ID>
+```
+
+`batch-prepare` 逐件上传夸克、创建分享、下载校验并生成上架预览。`batch-finish` 在整批成品与预览检查通过后逐件发布，每件发布和绑定核对完成后等待至少一分钟，再接续下一件；原批次可继续执行，完成项保留。相同交付内容不能换标题重复铺货。任何不确定结果都会停止本批，回读原记录后再接续。暂停后的进度使用 `batch-status` 读取，`--no-wait` 可在发布间隔内直接返回。批次保存到本机数据库，不需要导出源码副本。
+
+发布与交付规则配置完成后，还须检查账号订单读取、消息连接、准确商品对应关系，并通过真实小额订单确认买家收到正确资料。未取得该证据时只能记为“已配置”或“需要处理”，不能记为成交或真实交付完成。定制服务仍走原接单与验收流程。
+
 ## 本机数据与维护
 
 `data/console/console.sqlite3` 和 `data/console/.account.key` 必须一起备份，丢失密钥不能用新密钥代替。本机配置、浏览器资料、订单、回复/交付规则、素材包、网盘授权与操作回执都留在本项目 `data/` 或既有私有目录中。`products/`、`vendor/`、`upstream/`、内部 `docs/` 及旧工程记录也保留本机，不进入公开 Git 历史。

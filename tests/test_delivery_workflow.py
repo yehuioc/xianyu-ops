@@ -1,13 +1,14 @@
 import asyncio
 import copy
+import json
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import test_owned_publishing as publishing_fixtures
 import test_owned_quark as quark_fixtures
 from console import commerce, publishing, quark
-from console.delivery_workflow import Backend, DeliveryWorkflow, WorkflowStop
+from console.delivery_workflow import Backend, DeliveryWorkflow, BatchWorkflow, WorkflowStop, batch_lock
 from console.marketplace import MarketError, PUBLISH_API
 
 
@@ -180,6 +181,129 @@ class BundleRaceTests(unittest.TestCase):
             self.assertEqual(fixture.store.rows("commerce_bundle"), [])
         finally:
             fixture.tearDown()
+
+
+class BatchWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = publishing_fixtures.PublisherTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.addCleanup(self.fixture.tearDown)
+        self.cloud = quark_fixtures.FakeCloud(Path(self.fixture.temp.name) / "cloud")
+        self.backend = LocalBackend(self.fixture, self.cloud)
+        self.batch = BatchWorkflow(self.fixture.store, self.backend, "a", interval=0)
+
+    def multi_batch(self):
+        catalog = commerce.read_catalog()
+        catalog["products"][1]["sale_type"] = "digital"
+        commerce.CATALOG.write_text(json.dumps(catalog), encoding="utf-8")
+        commerce.source_file("excel-cleaning", "delivery", "示例.txt").write_text("不同的独立合成成品。", encoding="utf-8")
+        self.flows = {}
+        for slug in ("career-kit", "excel-cleaning"):
+            flow = MagicMock()
+            flow.prepare.return_value = {"preview_id": slug, "digest": "review-" + slug}
+            flow.finish.return_value = {"publication_state": "published", "cloud_state": "bound", "state": "needs_attention"}
+            self.flows[slug] = flow
+        batch = BatchWorkflow(self.fixture.store, self.backend, "a",
+                              flow_factory=lambda store, backend, account, slug: self.flows[slug])
+        return batch
+
+    def test_real_product_flow_upload_publish_bind_and_repeat_batch(self):
+        batch = self.batch.plan(["career-kit"])
+        self.assertEqual(batch["products"][0]["values"]["price_cents"], 99)
+        self.assertEqual(self.cloud.calls, [])
+        prepared = self.batch.prepare(batch["id"])
+        self.assertEqual(prepared["state"], "prepared_for_review")
+        self.assertEqual(self.fixture.store.rows("publication"), [])
+        done = self.batch.finish(batch["id"], prepared["review_digest"])
+        self.assertEqual(done["state"], "configured")
+        self.batch.finish(batch["id"], prepared["review_digest"])
+        self.assertEqual(sum(c["api_name"] == PUBLISH_API for c in self.fixture.calls), 1)
+        self.assertEqual(sum(c[0] == "upload" for c in self.cloud.calls), 1)
+        self.assertEqual(done["products"][0]["result"]["live_order_proof"], "not_established_by_this_check")
+
+    def test_swapped_batch_receipts_and_changed_second_product_stop_before_any_publication(self):
+        flow = self.multi_batch()
+        batch = flow.plan(["career-kit", "excel-cleaning"])
+        prepared = flow.prepare(batch["id"])
+        with self.assertRaises(WorkflowStop):
+            flow.finish(batch["id"], "0" * 64)
+        commerce.source_file("excel-cleaning", "delivery", "示例.txt").write_text("after review", encoding="utf-8")
+        with self.assertRaisesRegex(WorkflowStop, "已变化"):
+            flow.finish(batch["id"], prepared["review_digest"])
+        self.assertEqual(flow.load(batch["id"])["state"], "needs_attention")
+        self.assertEqual(flow.load(batch["id"])["stopped_slug"], "excel-cleaning")
+        for f in self.flows.values():
+            f.finish.assert_not_called()
+
+    def test_uncertain_first_publication_stops_before_second_and_resumes_same_receipt(self):
+        flow = self.multi_batch()
+        flow.interval = 0
+        batch = flow.prepare(flow.plan(["career-kit", "excel-cleaning"])["id"])
+        self.flows["career-kit"].finish.side_effect = WorkflowStop("response unknown", job_id="original-job")
+        stopped = flow.finish(batch["id"], batch["review_digest"])
+        self.assertEqual(stopped["state"], "needs_attention")
+        self.assertEqual(stopped["job_id"], "original-job")
+        self.flows["excel-cleaning"].finish.assert_not_called()
+        self.flows["career-kit"].finish.side_effect = None
+        done = flow.finish(batch["id"], batch["review_digest"])
+        self.assertEqual(done["state"], "configured")
+        self.assertEqual(self.flows["career-kit"].finish.call_args_list[0], self.flows["career-kit"].finish.call_args_list[1])
+
+    def test_completed_first_product_is_retained_across_restart_and_publish_interval(self):
+        flow = self.multi_batch()
+        batch = flow.prepare(flow.plan(["career-kit", "excel-cleaning"])["id"])
+        with patch("console.delivery_workflow.time.time", return_value=1000):
+            waiting = flow.finish(batch["id"], batch["review_digest"])
+        self.assertEqual(waiting["state"], "waiting_between_listings")
+        self.assertEqual(waiting["wait_seconds"], 60)
+        self.flows["excel-cleaning"].finish.assert_not_called()
+        resumed = BatchWorkflow(self.fixture.store, self.backend, "a", flow_factory=flow.flow_factory)
+        with patch("console.delivery_workflow.time.time", return_value=1061):
+            done = resumed.finish(batch["id"], batch["review_digest"])
+        self.assertEqual(done["state"], "configured")
+        self.flows["career-kit"].finish.assert_called_once()
+        self.flows["excel-cleaning"].finish.assert_called_once()
+
+    def test_second_preflight_failure_does_not_publish_first(self):
+        flow = self.multi_batch()
+        batch = flow.prepare(flow.plan(["career-kit", "excel-cleaning"])["id"])
+        self.flows["excel-cleaning"].validate_finish.side_effect = WorkflowStop("share mismatch")
+        with self.assertRaisesRegex(WorkflowStop, "share mismatch"):
+            flow.finish(batch["id"], batch["review_digest"])
+        self.flows["career-kit"].finish.assert_not_called()
+
+    def test_duplicate_content_service_and_account_mismatch_are_rejected(self):
+        with self.assertRaises(WorkflowStop):
+            self.batch.plan(["career-kit", "career-kit"])
+        with self.assertRaises(WorkflowStop):
+            self.batch.plan(["career-kit", "excel-cleaning"])
+        batch = self.batch.plan(["career-kit"])
+        with self.assertRaises(WorkflowStop):
+            BatchWorkflow(self.fixture.store, self.backend, "other").prepare(batch["id"])
+        flow = self.multi_batch()
+        commerce.source_file("excel-cleaning", "delivery", "示例.txt").write_bytes(
+            commerce.source_file("career-kit", "delivery", "示例.txt").read_bytes())
+        with self.assertRaisesRegex(WorkflowStop, "交付内容相同"):
+            flow.plan(["career-kit", "excel-cleaning"])
+        self.assertEqual(self.cloud.calls, [])
+
+    def test_saved_preview_tampering_with_unchanged_digest_is_rejected(self):
+        plan = DeliveryWorkflow(self.fixture.store, self.backend, "a", "career-kit").prepare()
+        preview = self.fixture.store.get("publish_preview", plan["preview_id"])
+        preview["price_cents"] = 1
+        self.fixture.store.put("publish_preview", preview["id"], preview, account="a")
+        with self.assertRaisesRegex(WorkflowStop, "预览内容已变化"):
+            DeliveryWorkflow(self.fixture.store, self.backend, "a", "career-kit").finish(
+                plan["preview_id"], plan["digest"], plan["delivery_sha256"])
+        self.assertEqual(self.fixture.store.rows("publication"), [])
+
+    def test_parallel_batch_is_refused_before_upload_or_publish(self):
+        batch = self.batch.plan(["career-kit"])
+        with batch_lock(self.fixture.store):
+            with self.assertRaisesRegex(WorkflowStop, "未并行提交"):
+                self.batch.prepare(batch["id"])
+        self.assertEqual(self.cloud.calls, [])
 
 
 class BackendFailureTests(unittest.TestCase):
